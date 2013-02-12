@@ -29,6 +29,7 @@ activities['activityB']= {
   },
 
   filter: function(dataActivities, event) {
+
     if (!event) {
       return false;
     } else {
@@ -54,6 +55,7 @@ activities['activityC']= {
   },
 
   filter: function(dataActivities, event) {
+
     if (!event) {
       return false;
     } else {

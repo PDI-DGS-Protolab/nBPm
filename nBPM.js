@@ -2,7 +2,7 @@ var http = require('http');
 
 //Stores information about the activities that have been executed and will be executed
 var processActivities = {};
-var executionPool = {};
+var executionPool = [];
 
 //HTTP Server to receive events
 var server = http.createServer(function (req, res) {
@@ -18,66 +18,94 @@ var server = http.createServer(function (req, res) {
 
     var event = JSON.parse(chunked);
 
-    for (var tag in executionPool) {
-      if (!executionPool[tag].executed &&
-          processActivities[tag].filter(executionPool[tag].dataActivities, event)){
-        executeActivity(tag, event);
+    //Elements can be pushed when an activity is executed, but this
+    //activities must not receive the event
+    var actualLength = executionPool.length;
+
+    for (var i = 0; i < actualLength; i++) {
+
+      var tag = executionPool[i].tag;
+
+      if (!executionPool[i].executed &&
+          processActivities[tag].filter(executionPool[i].dataActivities, event)){
+        executeActivity(i, event);
       }
     }
 
     res.end();
     req.destroy();
+
   });
 
 }).listen(5001, 'localhost');
 
-var end = function() {
-  server.close();
-}
-
 var next = function(tag, data, cardinality) {
 
-  //Increase the cardinality
-  if (!executionPool[tag]) {
-    executionPool[tag] = {};
+  //Look for the tag in the execution pool
+  var found = false;
+  for (var i = 0; i < executionPool.length && !found; i++) {
+
+    //and not finished and/or executed
+
+    if (executionPool[i].tag === tag) {
+      found = true;
+    }
+  }
+
+  var index = i - 1;
+
+  if (!found) {
+    var activityInfo = {};
+
+    //Set tag
+    activityInfo.tag = tag;
 
     //Set executed as false
-    executionPool[tag].executed = false;
+    activityInfo.executed = false;
 
     //Set data
-    executionPool[tag].dataActivities = [];
-    executionPool[tag].dataActivities[0] = data;
+    activityInfo.dataActivities = [];
+    activityInfo.dataActivities[0] = data;
 
     //Set cardinality
-    executionPool[tag].actualCardinality = 1;
-  } else {
+    activityInfo.actualCardinality = 1;
 
-    var actualCardinality = executionPool[tag].actualCardinality;
+    //Push activity into the execution Pool
+    index = executionPool.push(activityInfo) - 1;
+  } else {
+    var actualCardinality = executionPool[index].actualCardinality;
 
     //Set data
-    executionPool[tag].dataActivities[actualCardinality] = data;
+    executionPool[index].dataActivities[actualCardinality] = data;
 
     //Increase cardinality
-    executionPool[tag].actualCardinality = actualCardinality + 1;
+    executionPool[index].actualCardinality = actualCardinality + 1;
   }
 
   //Default value
   cardinality = cardinality || 1;
 
   //Execute the activity only if the cardinality has been reached
-  if (executionPool[tag].actualCardinality == cardinality) {
+  if (executionPool[index].actualCardinality === cardinality) {
 
     //Execute only if filter function returns true
-    if (processActivities[tag].filter(executionPool[tag].dataActivities)) {
-      executeActivity(tag);
+    if (processActivities[tag].filter(executionPool[index].dataActivities)) {
+      executeActivity(index);
     }
 
   }
 }
 
-var executeActivity = function(tag, event) {
-  processActivities[tag].exec(executionPool[tag].dataActivities, event, next, end);
-  executionPool[tag].executed = true;
+var end = function() {
+  server.close();
+}
+
+var executeActivity = function(index, event) {
+
+  var tag = executionPool[index].tag;
+
+  processActivities[tag].exec(executionPool[index].dataActivities, event, next, end);
+  executionPool[index].executed = true;
 }
 
 exports.process = function(activities) {

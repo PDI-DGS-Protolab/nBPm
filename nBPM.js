@@ -1,5 +1,5 @@
 var http = require('http');
-var globals = require ('./globals.js');
+var globals = require('./globals.js');
 
 //Stores information about the activities that have been executed and will be executed
 var processActivities = {};
@@ -10,12 +10,12 @@ var server = http.createServer(function (req, res) {
 
   var chunked = '';
 
-  req.on('data', function(data) {
+  req.on('data', function (data) {
 
     chunked += data;
   });
 
-  req.on('end', function(data) {
+  req.on('end', function (data) {
 
     var event = JSON.parse(chunked);
 
@@ -28,7 +28,7 @@ var server = http.createServer(function (req, res) {
       var tag = executionPool[i].tag;
 
       if (executionPool[i].state == globals.states.WAITING &&
-          processActivities[tag].filter(executionPool[i].dataActivities, event)){
+          processActivities[tag].filter(executionPool[i].dataActivities, event)) {
         executeActivity(i, event);
       }
     }
@@ -40,7 +40,7 @@ var server = http.createServer(function (req, res) {
 
 }).listen(5001, 'localhost');
 
-var next = function(indexCompletedActivity, tag, data, cardinality) {
+var next = function (indexCompletedActivity, nextExc, tag, data, cardinality) {
 
   if (indexCompletedActivity !== -1) {   //-1 when start
     executionPool[indexCompletedActivity].state = globals.states.COMPLETED;
@@ -99,7 +99,7 @@ var next = function(indexCompletedActivity, tag, data, cardinality) {
     executionPool[indexNextActivity].state = globals.states.WAITING;
 
     //Execute only if filter function returns true
-    if (processActivities[tag].filter(executionPool[indexNextActivity].dataActivities)) {
+    if (nextExc || processActivities[tag].filter(executionPool[indexNextActivity].dataActivities)) {
       executeActivity(indexNextActivity);
     }
 
@@ -108,25 +108,25 @@ var next = function(indexCompletedActivity, tag, data, cardinality) {
   }
 }
 
-var end = function() {
+var end = function () {
   server.close();
 }
 
-var executeActivity = function(index, event) {
+var executeActivity = function (index, event) {
 
   var tag = executionPool[index].tag;
 
   executionPool[index].state = globals.states.PROCESSING;
   processActivities[tag].exec(executionPool[index].dataActivities, event,
-      next.bind({}, index), end);
+      next.bind({}, index, false), next.bind({}, index, true), end);
 }
 
-exports.process = function(activities) {
+exports.process = function (activities) {
   processActivities = activities;
 }
 
-exports.start = function(tag, input) {
-  next(-1, tag, input, 1);
+exports.start = function (tag, input) {
+  next(-1, false, tag, input, 1);
 }
 
 

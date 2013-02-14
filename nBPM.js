@@ -6,6 +6,7 @@ var configMongo = require('./config.js').mongoConfig;
 //Stores information about the activities that have been executed and will be executed
 var processActivities = {};
 var executionPool = [];
+var processName = 'processA';
 
 //MongoDB Client
 var mongoClient = new mongodb.Db(configMongo.mongoDB, new mongodb.Server(
@@ -18,7 +19,8 @@ mongoClient.open(function (err, pClient) {
 });
 
 var insertDataIntoCollection = function (doc, callback) {
-  mongoClient.collection(configMongo.collection, function (err, collection) {
+
+  mongoClient.collection(processName, function (err, collection) {
     if (err) {
       console.log('Error: the event collection cannot be created');
     } else {
@@ -26,7 +28,8 @@ var insertDataIntoCollection = function (doc, callback) {
         if (err) {
           console.log('Error: The event cannot be stored in MongoBD');
         }
-        console.log(docs);
+        //console.log(docs);
+
         if (callback) {
           callback();
         }
@@ -77,79 +80,86 @@ var server = http.createServer(function (req, res) {
 
 }).listen(5001, 'localhost');
 
-var next = function (indexCompletedActivity, nextExc, tag, data, cardinality) {
+var next = function (indexCompletedActivity, nextExc, tags, data, cardinality) {
+
+  //Default value
+  cardinality = cardinality || 1;
 
   if (indexCompletedActivity !== -1) {   //-1 when start
+
     executionPool[indexCompletedActivity].state = globals.states.COMPLETED;
 
     var doc = {
+      id: indexCompletedActivity,
       type: globals.trackType.ACTIVITY,
       tag: executionPool[indexCompletedActivity].tag,
       result: data,
-      nextTag: tag
+      nextTags: tags
     };
 
     insertDataIntoCollection(doc);
   }
 
-  //Look for the tag in the execution pool
-  var found = false;
-  var indexNextActivity = -1;
+  for (var j = 0; j < tags.length; j++) {
+    var tag = tags[j];
 
-  for (var i = 0; i < executionPool.length && !found; i++) {
+    //Look for the tag in the execution pool
+    var found = false;
+    var indexNextActivity = -1;
 
-    //and its cardinality has not been reached
-    if (executionPool[i].tag === tag &&
-        executionPool[i].state === globals.states.CARDINALITY_NOT_REACHED) {
+    for (var i = 0; i < executionPool.length && !found; i++) {
 
-      var actualCardinality = executionPool[i].actualCardinality;
+      //and its cardinality has not been reached
+      if (executionPool[i].tag === tag &&
+          executionPool[i].state === globals.states.CARDINALITY_NOT_REACHED) {
+
+        var actualCardinality = executionPool[i].actualCardinality;
+
+        //Set data
+        executionPool[i].dataActivities[actualCardinality] = data;
+        //executionPool[indexNextActivity].
+        //    dataActivities[executionPool[indexCompletedActivity].state] = data;
+
+        //Increase cardinality
+        executionPool[i].actualCardinality = actualCardinality + 1;
+
+        found = true;
+        indexNextActivity = i;
+      }
+    }
+
+    if (!found) {
+      var activityInfo = {};
+
+      //Set tag
+      activityInfo.tag = tag;
 
       //Set data
-      executionPool[i].dataActivities[actualCardinality] = data;
-      //executionPool[indexNextActivity].
-      //    dataActivities[executionPool[indexCompletedActivity].state] = data;
+      activityInfo.dataActivities = [];
+      //activityInfo.dataActivities[executionPool[indexCompletedActivity].state] = data;
+      activityInfo.dataActivities[0] = data;
 
-      //Increase cardinality
-      executionPool[i].actualCardinality = actualCardinality + 1;
+      //Set cardinality
+      activityInfo.actualCardinality = 1;
 
-      found = true;
-      indexNextActivity = i;
-    }
-  }
-
-  if (!found) {
-    var activityInfo = {};
-
-    //Set tag
-    activityInfo.tag = tag;
-
-    //Set data
-    activityInfo.dataActivities = [];
-    //activityInfo.dataActivities[executionPool[indexCompletedActivity].state] = data;
-    activityInfo.dataActivities[0] = data;
-
-    //Set cardinality
-    activityInfo.actualCardinality = 1;
-
-    //Push activity into the execution Pool
-    indexNextActivity = executionPool.push(activityInfo) - 1;
-  }
-
-  //Default value
-  cardinality = cardinality || 1;
-
-  //Execute the activity only if the cardinality has been reached
-  if (executionPool[indexNextActivity].actualCardinality === cardinality) {
-
-    executionPool[indexNextActivity].state = globals.states.WAITING;
-
-    //Execute only if filter function returns true
-    if (nextExc || processActivities[tag].filter(executionPool[indexNextActivity].dataActivities)) {
-      executeActivity(indexNextActivity);
+      //Push activity into the execution Pool
+      indexNextActivity = executionPool.push(activityInfo) - 1;
     }
 
-  } else {
-    executionPool[indexNextActivity].state = globals.states.CARDINALITY_NOT_REACHED;
+    //Execute the activity only if the cardinality has been reached
+    if (executionPool[indexNextActivity].actualCardinality === cardinality) {
+
+      executionPool[indexNextActivity].state = globals.states.WAITING;
+
+      //Execute only if filter function returns true
+      if (nextExc || processActivities[tag].filter(executionPool[indexNextActivity].dataActivities)) {
+        executeActivity(indexNextActivity);
+      }
+
+
+    } else {
+      executionPool[indexNextActivity].state = globals.states.CARDINALITY_NOT_REACHED;
+    }
   }
 }
 
@@ -184,14 +194,63 @@ exports.process = function (activities) {
   processActivities = activities;
 }
 
-exports.start = function (tag, input) {
-  next(-1, false, tag, input, 1);
-}
-
 exports.insertTag = function(tag){
   var doc={
     type: globals.trackType.TAG,
-    name: tag
+    name: tag,
+    executionPool: executionPool
   };
+
   insertDataIntoCollection(doc);
+}
+
+exports.rollBack = function(tag) {
+
+  mongoClient.collection(processName, function (err, collection) {
+    if (err) {
+      console.log('Error: the event collection cannot be created');
+    } else {
+
+      collection.find().toArray(function(err, docs) {
+        if (err) {
+          console.log('Rollback cannot be executed due a MongoDB failure');
+        } else {
+
+          var found = false;
+          var tmpExcPool;
+          for (var i = 0; i < docs.length; i++) {
+            var doc = docs[i];
+
+            if (!found) {
+              if (doc.type === globals.trackType.TAG && doc.name === tag) {
+                found = true;
+                tmpExcPool = doc.executionPool;
+              }
+            } else {
+              if (doc.type === globals.trackType.ACTIVITY) {
+                //Execute RollBack
+                processActivities[executionPool[doc.id].tag].rollback();
+              }
+
+              //FIXME: Delete log from MongoDB?
+              collection.findAndRemove(doc, [['id', 1]], function(err) {
+
+              });
+
+            }
+          }
+
+          if (found) {
+            executionPool = tmpExcPool;
+          } else {
+            console.log('RollBack cannot be executed because the ID ' + tag + ' has not been found');
+          }
+        }
+      });
+    }
+  });
+}
+
+exports.start = function (tag, input) {
+  next(-1, false, [tag], input, 1);
 }

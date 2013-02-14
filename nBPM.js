@@ -187,3 +187,11 @@ exports.process = function (activities) {
 exports.start = function (tag, input) {
   next(-1, false, tag, input, 1);
 }
+
+exports.insertTag = function(tag){
+  var doc={
+    type: globals.trackType.TAG,
+    name: tag
+  };
+  insertDataIntoCollection(doc);
+}

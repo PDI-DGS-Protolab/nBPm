@@ -1,15 +1,19 @@
 var nBPM = require('../nBPM.js');
 
 var activities = {};
+var processName = 'processA';
 var rollBackExecuted = false;
 var rollBackTag = 'transactionTAG1'
 
 activities['activityA'] = {
   exec: function (dataActivities, event, next, nextExc, end) {
-    console.log('executing activity A');
-    //Activity A code
 
-    next(['activityB', 'activityC'], dataActivities[0] + 'A');
+    console.log('Executing Activity A');
+
+    //Activity A code
+    //...
+
+    next(['activityB', 'activityC'], dataActivities[0] + ' + Activity A');
     nBPM.insertTag(rollBackTag);
   },
 
@@ -19,15 +23,19 @@ activities['activityA'] = {
 
   rollback: function (exit) {
     console.log('This activity cannot be undone...');
-    return 0;
+    return -1;
   }
 };
 
 activities['activityB'] = {
   exec: function (dataActivities, event, next, nextExc, end) {
-    console.log('executing activity B');
+
+    console.log('Executing Activity B');
+
     //Activity B code
-    next(['activityD'], dataActivities[0] + 'B' + event.data, 2);
+    //...
+
+    next(['activityD'], dataActivities[0] + ' + Activity B: ' + event.data, 2);
   },
 
   filter: function (dataActivities, event) {
@@ -44,16 +52,20 @@ activities['activityB'] = {
   },
 
   rollback: function (exit) {
-    console.log('Undoing Activity B');
+    console.log('Undoing Activity B. Exit: ' + exit);
     return 0;
   }
 };
 
 activities['activityC'] = {
   exec: function (dataActivities, event, next, nextExc, end) {
-    console.log('executing activity C');
+
+    console.log('Executing Activity C');
+
     //Activity C code
-    next(['activityD'], dataActivities[0] + 'C', 2);
+    //...
+
+    next(['activityD'], dataActivities[0] + ' + Activity C: ' + event.data, 2);
   },
 
   filter: function (dataActivities, event) {
@@ -70,7 +82,7 @@ activities['activityC'] = {
   },
 
   rollback: function (exit) {
-    console.log('Undoing Activity C');
+    console.log('Undoing Activity C. Exit: ' + exit);
     return 0;
   }
 };
@@ -78,12 +90,19 @@ activities['activityC'] = {
 activities['activityD'] = {
   exec: function (dataActivities, event, next, nextExc, end) {
 
+    //Execute Rollback the first time...
     if (!rollBackExecuted) {
+
       nBPM.rollBack(rollBackTag);
       rollBackExecuted = true;
+
     } else {
+
       console.log('executing activity D');
+
       //Activity D code
+      //...
+
       console.log('Received data = ' + dataActivities);
       end(dataActivities);
     }
@@ -95,11 +114,11 @@ activities['activityD'] = {
 
   rollback: function (exit) {
     console.log('This activity cannot be undone...');
-    return 0;
+    return -1;
   }
 };
 
-nBPM.process(activities);
+nBPM.process('processA', activities);
 
 setTimeout(function () {
   //To be replaced by start function.

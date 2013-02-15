@@ -80,10 +80,14 @@ var server = http.createServer(function (req, res) {
 
 }).listen(5001, 'localhost');
 
-var next = function (indexCompletedActivity, nextExc, tags, data, cardinality) {
+var next = function (indexCompletedActivity, nextExc, tagsAndCardinalities, data) {
 
-  //Default value
-  cardinality = cardinality || 1;
+  var tags = [];
+
+  //Array with the tags
+  for (var i = 0; i < tagsAndCardinalities.length; i++) {
+    tags.push(tagsAndCardinalities[i].tag);
+  }
 
   if (indexCompletedActivity !== -1) {   //-1 when start
 
@@ -100,8 +104,10 @@ var next = function (indexCompletedActivity, nextExc, tags, data, cardinality) {
     insertDataIntoCollection(doc);
   }
 
-  for (var j = 0; j < tags.length; j++) {
-    var tag = tags[j];
+  for (var j = 0; j < tagsAndCardinalities.length; j++) {
+
+    var tag = tagsAndCardinalities[j].tag;
+    var cardinality = tagsAndCardinalities[j].cardinality || 1;
 
     //Look for the tag in the execution pool
     var indexNextActivity = -1;
@@ -189,7 +195,7 @@ exports.process = function (procName, activities) {
   processActivities = activities;
 };
 
-exports.insertTag = function(tag){
+exports.setTransactionTag = function(tag){
   var doc={
     type: globals.trackType.TAG,
     name: tag,
@@ -238,8 +244,9 @@ exports.rollBack = function(tag) {
             });
           }
 
-          if (found) {
+          if (indexTag !== -1) {
             executionPool = tmpExcPool;
+            //FIXME: Execute ready activities or wait for an event from user? (with function)
           } else {
             console.log('RollBack cannot be executed because the ID ' + tag + ' has not been found');
           }
@@ -250,5 +257,5 @@ exports.rollBack = function(tag) {
 };
 
 exports.start = function (tag, input) {
-  next(-1, false, [tag], input, 1);
+  next(-1, false, [{tag: tag}], input);
 };

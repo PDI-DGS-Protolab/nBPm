@@ -13,8 +13,8 @@ activities['activityA'] = {
     //Activity A code
     //...
 
-    next(['activityB', 'activityC'], dataActivities[0] + ' + Activity A');
-    nBPM.insertTag(rollBackTag);
+    next([{tag: 'activityB'}, {tag: 'activityC'}], dataActivities[0] + ' + Activity A');
+    nBPM.setTransactionTag(rollBackTag);
   },
 
   filter: function (dataActivities, event) {
@@ -35,7 +35,7 @@ activities['activityB'] = {
     //Activity B code
     //...
 
-    next(['activityD'], dataActivities[0] + ' + Activity B: ' + event.data, 2);
+    next([{tag: 'activityD', cardinality: 2}], dataActivities[0] + ' + Activity B: ' + event.data);
   },
 
   filter: function (dataActivities, event) {
@@ -65,7 +65,7 @@ activities['activityC'] = {
     //Activity C code
     //...
 
-    next(['activityD'], dataActivities[0] + ' + Activity C: ' + event.data, 2);
+    next([{tag: 'activityD', cardinality: 2}], dataActivities[0] + ' + Activity C: ' + event.data2);
   },
 
   filter: function (dataActivities, event) {

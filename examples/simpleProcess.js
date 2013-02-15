@@ -6,14 +6,14 @@ var rollBackExecuted = false;
 var rollBackTag = 'transactionTAG1'
 
 activities['activityA'] = {
-  exec: function (dataActivities, event, next, nextExc, end) {
+  exec: function (dataActivities, event, next, end) {
 
     console.log('Executing Activity A');
 
     //Activity A code
     //...
 
-    next([{tag: 'activityB'}, {tag: 'activityC'}], dataActivities[0] + ' + Activity A');
+    next([{tag: 'activityB'}, {tag: 'activityC', nextExc: true}], dataActivities[0] + ' + Activity A');
     nBPM.setTransactionTag(rollBackTag);
   },
 
@@ -28,7 +28,7 @@ activities['activityA'] = {
 };
 
 activities['activityB'] = {
-  exec: function (dataActivities, event, next, nextExc, end) {
+  exec: function (dataActivities, event, next, end) {
 
     console.log('Executing Activity B');
 
@@ -58,19 +58,21 @@ activities['activityB'] = {
 };
 
 activities['activityC'] = {
-  exec: function (dataActivities, event, next, nextExc, end) {
+  exec: function (dataActivities, event, next, end) {
 
     console.log('Executing Activity C');
 
     //Activity C code
     //...
 
-    next([{tag: 'activityD', cardinality: 2}], dataActivities[0] + ' + Activity C: ' + event.data2);
+    next([{tag: 'activityD', cardinality: 2}], dataActivities[0] + ' + Activity C: ');
   },
 
   filter: function (dataActivities, event) {
 
-    if (!event) {
+    return true;
+
+    /*if (!event) {
       return false;
     } else {
       if (!event.data2) {
@@ -78,7 +80,7 @@ activities['activityC'] = {
       } else {
         return true;
       }
-    }
+    }*/
   },
 
   rollback: function (exit) {
@@ -88,7 +90,7 @@ activities['activityC'] = {
 };
 
 activities['activityD'] = {
-  exec: function (dataActivities, event, next, nextExc, end) {
+  exec: function (dataActivities, event, next, end) {
 
     //Execute Rollback the first time...
     if (!rollBackExecuted) {

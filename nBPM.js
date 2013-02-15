@@ -80,10 +80,9 @@ var server = http.createServer(function (req, res) {
 
 }).listen(5001, 'localhost');
 
-var next = function (indexCompletedActivity, nextExc, tagsAndCardinalities, data) {
+var next = function (indexCompletedActivity, tagsAndCardinalities, data) {
 
   var tags = [];
-
   //Array with the tags
   for (var i = 0; i < tagsAndCardinalities.length; i++) {
     tags.push(tagsAndCardinalities[i].tag);
@@ -108,6 +107,7 @@ var next = function (indexCompletedActivity, nextExc, tagsAndCardinalities, data
 
     var tag = tagsAndCardinalities[j].tag;
     var cardinality = tagsAndCardinalities[j].cardinality || 1;
+    var nextExc = tagsAndCardinalities[j].nextExc || false;
 
     //Look for the tag in the execution pool
     var indexNextActivity = -1;
@@ -155,6 +155,7 @@ var next = function (indexCompletedActivity, nextExc, tagsAndCardinalities, data
 
       executionPool[indexNextActivity].state = globals.states.WAITING;
 
+
       //Execute either nextExc was executed or filter returns true
       if (nextExc || processActivities[tag].filter(executionPool[indexNextActivity].dataActivities)) {
         executeActivity(indexNextActivity);
@@ -186,7 +187,7 @@ var executeActivity = function (index, event) {
   executionPool[index].state = globals.states.PROCESSING;
 
   process.nextTick(processActivities[tag].exec.bind({}, executionPool[index].dataActivities, event,
-      next.bind({}, index, false), next.bind({}, index, true), end.bind({}, index)));
+      next.bind({}, index), end.bind({}, index)));
 
 }
 
@@ -257,5 +258,5 @@ exports.rollBack = function(tag) {
 };
 
 exports.start = function (tag, input) {
-  next(-1, false, [{tag: tag}], input);
+  next(-1, [{tag: tag}], input);
 };

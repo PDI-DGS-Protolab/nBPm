@@ -82,90 +82,95 @@ var server = http.createServer(function (req, res) {
 
 var next = function (indexCompletedActivity, tagsAndCardinalities, data) {
 
-  var tags = [];
-  //Array with the tags
-  for (var i = 0; i < tagsAndCardinalities.length; i++) {
-    tags.push(tagsAndCardinalities[i].tag);
-  }
+  if (executionPool[indexCompletedActivity].state === globals.states.COMPLETED) {
+    console.log('ERROR: This activity already executed next()');
+  } else {
 
-  if (indexCompletedActivity !== -1) {   //-1 when start
+    var tags = [];
+    //Array with the tags
+    for (var i = 0; i < tagsAndCardinalities.length; i++) {
+      tags.push(tagsAndCardinalities[i].tag);
+    }
 
-    executionPool[indexCompletedActivity].state = globals.states.COMPLETED;
+    if (indexCompletedActivity !== -1) {   //-1 when start
 
-    var doc = {
-      id: indexCompletedActivity,
-      type: globals.trackType.ACTIVITY,
-      tag: executionPool[indexCompletedActivity].tag,
-      result: data,
-      nextTags: tags
-    };
+      executionPool[indexCompletedActivity].state = globals.states.COMPLETED;
 
-    insertDataIntoCollection(doc);
-  }
+      var doc = {
+        id: indexCompletedActivity,
+        type: globals.trackType.ACTIVITY,
+        tag: executionPool[indexCompletedActivity].tag,
+        result: data,
+        nextTags: tags
+      };
 
-  for (var j = 0; j < tagsAndCardinalities.length; j++) {
+      insertDataIntoCollection(doc);
+    }
 
-    var tag = tagsAndCardinalities[j].tag;
-    var cardinality = tagsAndCardinalities[j].cardinality || 1;
-    var nextExc = tagsAndCardinalities[j].nextExc || false;
+    for (var j = 0; j < tagsAndCardinalities.length; j++) {
 
-    //Look for the tag in the execution pool
-    var indexNextActivity = -1;
+      var tag = tagsAndCardinalities[j].tag;
+      var cardinality = tagsAndCardinalities[j].cardinality || 1;
+      var nextExc = tagsAndCardinalities[j].nextExc || false;
 
-    for (var i = 0; i < executionPool.length && indexNextActivity === -1; i++) {
+      //Look for the tag in the execution pool
+      var indexNextActivity = -1;
 
-      //and its cardinality has not been reached
-      if (executionPool[i].tag === tag &&
-          executionPool[i].state === globals.states.CARDINALITY_NOT_REACHED) {
+      for (var i = 0; i < executionPool.length && indexNextActivity === -1; i++) {
 
-        var totalInvocations = executionPool[i].invocations;
+        //and its cardinality has not been reached
+        if (executionPool[i].tag === tag &&
+            executionPool[i].state === globals.states.CARDINALITY_NOT_REACHED) {
+
+          var totalInvocations = executionPool[i].invocations;
+
+          //Set data
+          executionPool[i].dataActivities[totalInvocations] = data;
+          //executionPool[indexNextActivity].
+          //    dataActivities[executionPool[indexCompletedActivity].state] = data;
+
+          //Increase cardinality
+          executionPool[i].invocations = totalInvocations + 1;
+
+          indexNextActivity = i;
+        }
+      }
+
+      if (indexNextActivity === -1) {
+        var activityInfo = {};
+
+        //Set tag
+        activityInfo.tag = tag;
+
+        //Set nextExc
+        activityInfo.nextExc = nextExc;
 
         //Set data
-        executionPool[i].dataActivities[totalInvocations] = data;
-        //executionPool[indexNextActivity].
-        //    dataActivities[executionPool[indexCompletedActivity].state] = data;
+        activityInfo.dataActivities = [];
+        //activityInfo.dataActivities[executionPool[indexCompletedActivity].state] = data;
+        activityInfo.dataActivities[0] = data;
 
-        //Increase cardinality
-        executionPool[i].invocations = totalInvocations + 1;
+        //Set cardinality
+        activityInfo.invocations = 1;
 
-        indexNextActivity = i;
-      }
-    }
-
-    if (indexNextActivity === -1) {
-      var activityInfo = {};
-
-      //Set tag
-      activityInfo.tag = tag;
-
-      //Set nextExc
-      activityInfo.nextExc = nextExc;
-
-      //Set data
-      activityInfo.dataActivities = [];
-      //activityInfo.dataActivities[executionPool[indexCompletedActivity].state] = data;
-      activityInfo.dataActivities[0] = data;
-
-      //Set cardinality
-      activityInfo.invocations = 1;
-
-      //Push activity into the execution Pool
-      indexNextActivity = executionPool.push(activityInfo) - 1;
-    }
-
-    //If the cardinality is reached, the state will be waiting (for new events)
-    if (executionPool[indexNextActivity].invocations === cardinality) {
-
-      executionPool[indexNextActivity].state = globals.states.WAITING;
-
-
-      //Execute either nextExc was executed or filter returns true
-      if (nextExc || processActivities[tag].filter(executionPool[indexNextActivity].dataActivities)) {
-        executeActivity(indexNextActivity);
+        //Push activity into the execution Pool
+        indexNextActivity = executionPool.push(activityInfo) - 1;
       }
 
-    } else {
-      executionPool[indexNextActivity].state = globals.states.CARDINALITY_NOT_REACHED;
+      //If the cardinality is reached, the state will be waiting (for new events)
+      if (executionPool[indexNextActivity].invocations === cardinality) {
+
+        executionPool[indexNextActivity].state = globals.states.WAITING;
+
+
+        //Execute either nextExc was executed or filter returns true
+        if (nextExc || processActivities[tag].filter(executionPool[indexNextActivity].dataActivities)) {
+          executeActivity(indexNextActivity);
+        }
+
+      } else {
+        executionPool[indexNextActivity].state = globals.states.CARDINALITY_NOT_REACHED;
+      }
     }
   }
 };
@@ -201,14 +206,23 @@ exports.process = function (procName, activities) {
 
 exports.setTransactionTag = function(tag){
 
-  //FIXME: Processing Activities should change its state to Waiting before saving the execution pool?
-  var doc={
-    type: globals.trackType.TAG,
-    name: tag,
-    executionPool: executionPool
-  };
+  mongoClient.collection(processName, function(err, collection) {
+    collection.findOne({ type: globals.trackType.TAG, name: tag }, function (err, doc) {
 
-  insertDataIntoCollection(doc);
+      if (!doc){
+        //FIXME: Processing Activities should change its state to Waiting before saving the execution pool?
+        var doc={
+          type: globals.trackType.TAG,
+          name: tag,
+          executionPool: executionPool
+        };
+        
+        insertDataIntoCollection(doc);     
+      } else{
+          console.log('The tag ' + tag + ' already exists');
+      }
+    });
+  });
 };
 
 exports.rollBack = function(tag) {

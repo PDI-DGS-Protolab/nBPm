@@ -138,6 +138,9 @@ var next = function (indexCompletedActivity, tagsAndCardinalities, data) {
       //Set tag
       activityInfo.tag = tag;
 
+      //Set nextExc
+      activityInfo.nextExc = nextExc;
+
       //Set data
       activityInfo.dataActivities = [];
       //activityInfo.dataActivities[executionPool[indexCompletedActivity].state] = data;
@@ -247,7 +250,20 @@ exports.rollBack = function(tag) {
 
           if (indexTag !== -1) {
             executionPool = tmpExcPool;
-            //FIXME: Execute ready activities or wait for an event from user? (with function)
+
+            //Waiting activities which was executed with nextExc tag must be executed.
+            //Waiting activities ready to execute (filter), must me started even if nextExc === false
+            for (var i = 0; i < executionPool.length; i++) {
+
+              //FIXME: Think me: state should be only WAITING??!
+              if ((executionPool[i].state !== globals.states.COMPLETED
+                  && executionPool[i].state !== globals.states.CARDINALITY_NOT_REACHED) &&
+                  (executionPool[i].nextExc === true ||
+                      processActivities[executionPool[i].tag].filter(executionPool[i].dataActivities))){
+
+                executeActivity(i);
+              }
+            }
           } else {
             console.log('RollBack cannot be executed because the ID ' + tag + ' has not been found');
           }

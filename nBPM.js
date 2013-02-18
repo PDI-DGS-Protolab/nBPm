@@ -200,6 +200,8 @@ exports.process = function (procName, activities) {
 };
 
 exports.setTransactionTag = function(tag){
+
+  //FIXME: Processing Activities should change its state to Waiting before saving the execution pool?
   var doc={
     type: globals.trackType.TAG,
     name: tag,
@@ -232,23 +234,46 @@ exports.rollBack = function(tag) {
             }
           }
 
+          var rollBackErrorIndex = -1;
+
           //Once the tag has been found, activities should be undone in reverse order
-          for (var j = docs.length - 1; j > indexTag; j--){
+          for (var j = docs.length - 1; j > indexTag && rollBackErrorIndex === -1; j--){
 
             var doc = docs[j];
 
             if (doc.type === globals.trackType.ACTIVITY) {
+
               //Execute RollBack
-              processActivities[executionPool[doc.id].tag].rollback(doc.result);
+              var error = processActivities[executionPool[doc.id].tag].rollback(doc.result);
+              if (error !== 0){
+                rollBackErrorIndex = j;
+              }
             }
 
-            //FIXME: Delete log from MongoDB?
+            //FIXME: Delete log from MongoDB? At this point or later when all rollbacks have been executed properly?
             collection.findAndRemove(doc, [['id', 1]], function(err) {
 
             });
           }
 
-          if (indexTag !== -1) {
+          //If there was an error executing rollback
+          if (rollBackErrorIndex !== -1) {
+
+            console.log('ERROR: There was an error executing a rollback function. Abort');
+
+            var rollBackError = {
+              type: globals.trackType.ROLLBACK_ERROR,
+              actualState: executionPool,
+              rollBackState: tmpExcPool,
+              activityError: executionPool[docs[rollBackErrorIndex].id].tag,
+              input: docs[rollBackErrorIndex].result,
+              error: error
+            }
+
+            insertDataIntoCollection(rollBackError);
+
+          } else if (indexTag !== -1) {
+
             executionPool = tmpExcPool;
 
             //Waiting activities which was executed with nextExc tag must be executed.

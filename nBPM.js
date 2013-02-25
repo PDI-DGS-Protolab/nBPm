@@ -6,6 +6,7 @@ var configMongo = require('./config.js').mongoConfig;
 var processActivities = {};
 var executionPool = [];
 var processName;
+var pendingTransaction = null;
 
 //MongoDB Client
 var mongoClient = new mongodb.Db(configMongo.mongoDB, new mongodb.Server(
@@ -82,12 +83,12 @@ var server = http.createServer(function (req, res) {
 
 var next = function (indexCompletedActivity, tagsAndCardinalities, data) {
 
-  if (executionPool[indexCompletedActivity].state === globals.states.COMPLETED) {
+  if (indexCompletedActivity >= 0 && executionPool[indexCompletedActivity].state === globals.states.COMPLETED) {
     console.log('ERROR: This activity already executed next()');
   } else {
 
+    //Tags Array
     var tags = [];
-    //Array with the tags
     for (var i = 0; i < tagsAndCardinalities.length; i++) {
       tags.push(tagsAndCardinalities[i].tag);
     }
@@ -105,6 +106,10 @@ var next = function (indexCompletedActivity, tagsAndCardinalities, data) {
       };
 
       insertDataIntoCollection(doc);
+
+      if(pendingTransaction) {
+        insertTag();
+      }
     }
 
     for (var j = 0; j < tagsAndCardinalities.length; j++) {
@@ -197,7 +202,30 @@ var executeActivity = function (index, event) {
   process.nextTick(processActivities[tag].exec.bind({}, executionPool[index].dataActivities, event,
       next.bind({}, index), end.bind({}, index)));
 
-}
+};
+
+var insertTag = function() {
+  var processing = false;
+  for (var i = 0; i < executionPool && !processing; i++) {
+    if(executionPool[i].status === globals.states.PROCESSING) {
+      processing = true;
+    }
+  }
+
+  if (!processing) {
+
+    var doc={
+      type: globals.trackType.TAG,
+      name: pendingTransaction,
+      executionPool: executionPool
+    };
+
+    insertDataIntoCollection(doc);
+    console.log('Transaction ' + pendingTransaction + ' created!');
+    pendingTransaction = undefined;
+
+  }
+};
 
 exports.process = function (procName, activities) {
   processName = procName;
@@ -206,23 +234,26 @@ exports.process = function (procName, activities) {
 
 exports.setTransactionTag = function(tag){
 
-  mongoClient.collection(processName, function(err, collection) {
-    collection.findOne({ type: globals.trackType.TAG, name: tag }, function (err, doc) {
+  if (pendingTransaction) {
 
-      if (!doc){
-        //FIXME: Processing Activities should change its state to Waiting before saving the execution pool?
-        var doc={
-          type: globals.trackType.TAG,
-          name: tag,
-          executionPool: executionPool
-        };
-        
-        insertDataIntoCollection(doc);     
-      } else{
+    console.log('The transaction ' + pendingTransaction + ' has not been created yet. Please create a new ' +
+        'transaction when this transaction is created');
+  } else {
+    mongoClient.collection(processName, function(err, collection) {
+      collection.findOne({ type: globals.trackType.TAG, name: tag }, function (err, doc) {
+
+        if (!doc){
+
+          //FIXME: Processing Activities should change its state to Waiting before saving the execution pool?
+          //FIXME: Activities are waited to finish and then the transaction is set
+          pendingTransaction = tag;
+          insertTag();
+        } else {
           console.log('The tag ' + tag + ' already exists');
-      }
+        }
+      });
     });
-  });
+  }
 };
 
 exports.rollBack = function(tag) {

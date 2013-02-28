@@ -85,7 +85,7 @@ activities['activityC'] = {
 
   rollback: function (exit) {
     console.log('Undoing Activity C. Exit: ' + exit);
-    return 0;
+    return -1;
   }
 };
 

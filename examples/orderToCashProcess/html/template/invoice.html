@@ -1,0 +1,193 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html lang="en">
+<head>
+    <meta charset='UTF-8'>
+    <title>Telefonica Digital e-Invoice</title>
+
+    <style>
+
+        @page {
+            margin: 1cm;
+            margin-bottom: 3.8cm;
+            margin-top: 4cm;
+
+        @frame header {
+            -pdf-frame-content: header;
+            top: 1cm;
+            margin-left: 0.9cm;
+            height: 3.5cm;
+        }
+        @frame footer {
+            -pdf-frame-content: footer;
+            bottom: 0cm;
+            margin-left: 0.9cm;
+            margin-right: 0.9cm;
+            height: 2.2cm;
+        }
+            }
+
+        * { margin: 0; padding: 0; }
+
+        body {
+            width: 800px;
+            margin: 0 auto;
+            font-size: 11pt;
+        }
+
+        #footer {
+            text-align: left;
+            border-top: 20px;
+            border-bottom: 20px;
+        }
+
+        table { border-collapse: collapse; }
+        table td, table th { border: 1px solid #005777; padding: 5px; }
+
+        .result td {
+            border-spacing: 2px;
+            padding: 2px;
+            border: 0px;
+        }
+
+        #items { clear: both; width: 100%; margin: 30px 0 0 0; border: 1px solid #bbbbbb; }
+        #items th { background: #F3F3F3; border: 1px solid #bbbbbb}
+        #items tr.item-row td { border: 0; vertical-align: top; text-align: right}
+        #items .item-row .description { width: 300px; text-align: left}
+
+        #content table tr td strong {
+            font-weight: bold;
+        }
+
+        .invoice {
+            font-weight: bold;
+            padding-top: 10px;
+            padding-right: 10px;
+            background: white;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<div id="header">
+    <img src="cid:unique@kreata.ee" width="722" height="71"/></div>
+
+<div id="content">
+
+    <table width="722" border="0px" >
+        <tr>
+            <td width="400" valign="top" style="border: 0px; font-family: 'Helvetica Neue';">
+            </td>
+
+            <td width="360" style="border: 0px; font-family: 'Helvetica Neue'; background: #B7DEE8">
+                <table width="360" border="0" bgcolor="#B7DEE8" id="meta">
+                    <tr>
+                        <td width="153" style="border: 0px" class="meta-head"><strong>Invoice Number:</strong></td>
+                        <td width="218" style="border: 0px; text-align: right"><div class="invoice"><%= invoice.number %></div></td>
+                    </tr>
+                    <tr>
+
+                        <td class="meta-head" style="border: 0px"><strong>Invoice Date:</strong></td>
+                        <td style="border: 0px; text-align: right"><div class="invoice"><%= invoice.date %></div></td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+
+    <br />
+
+    <table border="0" style="background: #F2F2F2">
+        <tr>
+            <td width="399" bgcolor="#F2F2F2" valign="top" style="border: 0px; font-family: 'Helvetica Neue'">
+                <strong>Customer Information</strong><br />
+                <%= customer.name %><br />
+                <%= customer.address %><br />
+                <%= customer.city %>, <%= customer.postal_code %><br />
+                <%= customer.country %>
+            </td>
+            <td width="391" style="border: 0px">
+
+            </td>
+        </tr>
+    </table>
+
+    <br />
+
+    <table border="0">
+        <tr>
+            <td width="782" valign="top" style="border: 0px; font-family: 'Helvetica Neue'; background:#F2F2F2"> <strong>Purchase information of products supplied in <%= invoice.month %></strong>
+
+            </td>
+        </tr>
+    </table>
+    <br />
+
+    <table id="items">
+        <tr valign="top" style="border: 0px; font-family: 'Helvetica Neue'; background: #F2F2F2">
+            <th width="15%">Item Code</th>
+            <th width="40%">Description</th>
+            <th width="12%">Units</th>
+            <th width="13%">Unit Price</th>
+            <th width="20%">Price</th>
+        </tr>
+
+        <% for (var item in items) { %>
+
+        <tr class="item-row">
+            <td><%= items[item].concept %></td>
+            <td class="description"><%= items[item].description %></td>
+            <td><%= items[item].amount %></td>
+            <td>€<%= items[item].price %></td>
+            <td>€<%= items[item].total %></td>
+        </tr>
+
+        <% } %>
+
+        <tr class="item-row">
+            <td></td>
+            <td></td>
+            <td></td>
+            <td>Total Net</td>
+            <td><%= subtotal %> €</td>
+        </tr>
+        <tr class="item-row">
+            <td></td>
+            <td></td>
+            <td></td>
+            <td>VAT (<%= tax_rate %> %)*</td>
+            <td> <%= taxes %> €</td>
+        </tr>
+        <tr class="item-row" style="font-family: 'Helvetica Neue'; background: #F2F2F2">
+            <td></td>
+            <td></td>
+            <td></td>
+            <td><strong>Total</strong></td>
+            <td> <%= total %> €</td>
+        </tr>
+
+
+    </table>
+
+    <p>(*) Pound Sterling conversion rate: 0.832. VAT amount: &pound;19.31 </p>
+
+</div>
+
+<table id="footer" style="vertical-align: top; border: 0px; width: 722px;">
+    <tr style="border: 1px;">
+        <td style="border: 0px; width: 620px;">Telefónica Digital UK Ltd VAT Reg No: GB 999 9999 99</br>
+            20 Air St London W1B, London, United Kingdom
+        </td>
+        <td style="text-align: right; border: 0px; width: 100px; vertical-align: top">
+            Page <pdf:pagenumber/> of <pdf:pagecount/>
+        </td>
+    </tr>
+
+</table>
+
+</body>
+
+</html>

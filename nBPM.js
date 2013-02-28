@@ -168,7 +168,7 @@ var next = function (indexCompletedActivity, tagsAndCardinalities, data) {
         executionPool[indexNextActivity].state = globals.states.WAITING;
 
 
-        //Execute either nextExc was executed or filter returns true
+        //Execute either nextExc is true or filter returns true
         if (nextExc || processActivities[tag].filter(executionPool[indexNextActivity].dataActivities)) {
           executeActivity(indexNextActivity);
         }

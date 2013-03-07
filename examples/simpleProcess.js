@@ -3,7 +3,7 @@ var nBPM = require('../nBPM.js');
 var activities = {};
 var processName = 'processA';
 var rollBackExecuted = false;
-var rollBackTag = 'transactionTAG1'
+var rollBackTag = 'transactionTAG1';
 
 activities['activityA'] = {
   exec: function (dataActivities, event, next, end) {
@@ -14,7 +14,7 @@ activities['activityA'] = {
     //...
 
     next([{tag: 'activityB'}, {tag: 'activityC', nextExc: true}], dataActivities[0] + ' + Activity A');
-    nBPM.setTransactionTag(rollBackTag);
+    process.setTransactionTag(rollBackTag);
   },
 
   filter: function (dataActivities, event) {
@@ -95,7 +95,7 @@ activities['activityD'] = {
     //Execute Rollback the first time...
     if (!rollBackExecuted) {
 
-      nBPM.rollBack(rollBackTag);
+      process.rollBack(rollBackTag);
       rollBackExecuted = true;
 
     } else {
@@ -120,9 +120,8 @@ activities['activityD'] = {
   }
 };
 
-nBPM.process('processA', activities);
+var process = nBPM.createProcess(processName, activities);
 
 setTimeout(function () {
-  //To be replaced by start function.
-  nBPM.start('activityA', '¡EXAMPLE!');
+  process.start('activityA', '¡EXAMPLE!');
 }, 100);

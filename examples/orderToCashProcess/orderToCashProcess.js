@@ -7,6 +7,7 @@ var charging = require('./charging/charging.js');
 
 var activities = {};
 var processName = 'orderToCash';
+var process;
 
 activities['rating'] = {
   exec: function (dataActivities, event, next, end) {
@@ -112,10 +113,9 @@ activities['charging'] = {
 
 }
 
-
-nBPM.process(processName, activities);
+process = nBPM.createProcess(processName, activities);
 
 setTimeout(function () {
   //To be replaced by start function.
-  nBPM.start('rating', {consumption: './sample.xml', file: '/home/aitor/facturas/fact3.html'});
+  process.start('rating', {consumption: './sample.xml', file: '/home/aitor/facturas/fact3.html'});
 }, 100);

@@ -3,21 +3,22 @@ var globals = require('./globals.js');
 var mongodb = require('mongodb');
 var configMongo = require('./config.js').mongoConfig;
 
-//MongoDB Client
-var mongoClient = new mongodb.Db(configMongo.mongoDB, new mongodb.Server(
-    configMongo.mongoHost, configMongo.mongoPort, {}));
 
-mongoClient.open(function (err, pClient) {
-  if (err) {
-    console.log('Cannot connect to MongoDB...')
-  }
-});
 
 var Process = function(procName, activities) {
   var processName = procName;
   var processActivities = activities;
   var executionPool = [];
   var pendingTransaction = null;
+  //MongoDB Client
+  var mongoClient = new mongodb.Db(configMongo.mongoDB, new mongodb.Server(
+    configMongo.mongoHost, configMongo.mongoPort, {}));
+
+  mongoClient.open(function (err, pClient) {
+    if (err) {
+      console.log('Cannot connect to MongoDB...')
+    }
+  });
 
   //HTTP Server to receive events
   var server = http.createServer(function (req, res) {

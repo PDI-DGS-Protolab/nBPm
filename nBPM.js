@@ -113,8 +113,7 @@ var Process = function(procName, activities) {
         insertDataIntoCollection(doc);
 
         if(pendingTransaction) {
-          var insTag = insertTag.bind(this);
-          insTag();
+          insertTag();
         }
       }
 
@@ -236,7 +235,7 @@ var Process = function(procName, activities) {
   };
 
   this.start = function(tag, input) {
-    var functionToExecute = next(-1, [{tag: tag}], input);
+    next(-1, [{tag: tag}], input);
   };
 
   this.setTransactionTag = function(tag) {
@@ -270,7 +269,7 @@ var Process = function(procName, activities) {
 
         collection.find().toArray(function(err, docs) {
           if (err) {
-            console.log('Rollback cannot be executed due a MongoDB failure' + err);
+            console.log('Rollback cannot be executed due a MongoDB failure');
           } else {
 
             var indexTag = -1;

@@ -98,7 +98,6 @@ activities['charging'] = {
     var data = dataActivities[0];
 
     charging.processPayment(data, function(res) {
-      console.log(res);
       end(data);
     });
   },
@@ -114,8 +113,4 @@ activities['charging'] = {
 }
 
 process = nBPM.createProcess(processName, activities);
-
-setTimeout(function () {
-  //To be replaced by start function.
-  process.start('rating', {consumption: './sample.xml', file: '/home/aitor/facturas/fact3.html'});
-}, 100);
+process.start('rating', {consumption: './sample.xml', file: '/home/aitor/facturas/fact3.html'});

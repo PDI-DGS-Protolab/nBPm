@@ -121,7 +121,4 @@ activities['activityD'] = {
 };
 
 var process = nBPM.createProcess(processName, activities);
-
-setTimeout(function () {
-  process.start('activityA', '¡EXAMPLE!');
-}, 100);
+process.start('activityA', '¡EXAMPLE!');

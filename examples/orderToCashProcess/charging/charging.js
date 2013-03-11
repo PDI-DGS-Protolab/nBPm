@@ -37,8 +37,6 @@ var processPayment = function(data, callback) {
   var statement   = "statement";
   var order_code  = generateUUID4();
 
-  console.log(order_code);
-
   var paymentData = orderData(tef_account, total, currency, country, statement, order_code)
 
   processRecurrentPayment(data, callback);

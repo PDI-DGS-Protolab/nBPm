@@ -201,8 +201,6 @@ var Process = function(procName, activities) {
 
   var insertTag = function() {
 
-    console.log(processName);
-
     var processing = false;
     for (var i = 0; i < executionPool && !processing; i++) {
       if(executionPool[i].status === globals.states.PROCESSING) {
@@ -270,7 +268,7 @@ var Process = function(procName, activities) {
   this.rollBack = function(tag) {
     mongoClient.collection(processName, function (err, collection) {
       if (err) {
-        console.log('Error: the event collection cannot be created');
+        console.log('Error: the event collection cannot be accessed');
       } else {
 
         collection.find().toArray(function(err, docs) {
@@ -278,21 +276,21 @@ var Process = function(procName, activities) {
             console.log('Rollback cannot be executed due a MongoDB failure');
           } else {
 
-            var indexTag = -1;
+            var tagIndex = -1;
             var tmpExcPool;
-            for (var i = 0; i < docs.length && indexTag === -1; i++) {
+            for (var i = 0; i < docs.length && tagIndex === -1; i++) {
               var doc = docs[i];
 
               if (doc.type === globals.trackType.TAG && doc.name === tag) {
                 tmpExcPool = doc.executionPool;
-                indexTag = i;
+                tagIndex = i;
               }
             }
 
             var rollBackErrorIndex = -1;
 
             //Once the tag has been found, activities should be undone in reverse order
-            for (var j = docs.length - 1; j > indexTag && rollBackErrorIndex === -1; j--){
+            for (var j = docs.length - 1; j > tagIndex && rollBackErrorIndex === -1; j--){
 
               var doc = docs[j];
 
@@ -327,7 +325,7 @@ var Process = function(procName, activities) {
 
               insertDataIntoCollection(rollBackError);
 
-            } else if (indexTag !== -1) {
+            } else if (tagIndex !== -1) {
 
               executionPool = tmpExcPool;
 

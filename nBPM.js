@@ -1,12 +1,14 @@
 var http = require('http');
-var globals = require('./globals.js');
 var mongodb = require('mongodb');
+var uuid = require('node-uuid');
+var globals = require('./globals.js');
 var configMongo = require('./config.js').mongoConfig;
 
 var Process = function(procName, activities) {
+  var processUUID = uuid.v4();
   var processName = procName;
+  var mongoIdentifier = processName + ':' + processUUID;
   var processActivities = activities;
-  var executionPool = [];
   var pendingTransaction = null;
 
   //MongoDB Client
@@ -27,27 +29,33 @@ var Process = function(procName, activities) {
       var event = JSON.parse(chunked);
       var activitiesAcceptEvent = [];
 
-      //Elements can be pushed when an activity is executed, but this
-      //activities must not receive the event
-      var actualLength = executionPool.length;
+      mongoClient.collection(mongoIdentifier + ':' + globals.EXCPOOL_SUFFIX, function (err, collection) {
+        collection.find().toArray(function(err, executionPool) {
 
-      for (var i = 0; i < actualLength; i++) {
+          //Elements can be pushed when an activity is executed, but this
+          //activities must not receive the event
+          var actualLength = executionPool.length;
 
-        var tag = executionPool[i].tag;
+          for (var i = 0; i < actualLength; i++) {
 
-        if (executionPool[i].state == globals.states.WAITING &&
-            processActivities[tag].filter(executionPool[i].dataActivities, event)) {
-          executeActivity(i, event);
-          activitiesAcceptEvent.push(executionPool[i].tag);
-        }
-      }
+            var tag = executionPool[i].tag;
 
-      var doc = {
-        type: globals.trackType.EVENT,
-        event: event,
-        activitiesAcceptEvent: activitiesAcceptEvent
-      };
-      insertDataIntoCollection(doc);
+            if (executionPool[i].state == globals.states.WAITING &&
+                processActivities[tag].filter(executionPool[i].dataActivities, event)) {
+              executeActivity(executionPool[i]['_id'], event);
+              activitiesAcceptEvent.push(executionPool[i].tag);
+            }
+          }
+
+          var doc = {
+            type: globals.trackType.EVENT,
+            event: event,
+            activitiesAcceptEvent: activitiesAcceptEvent
+          };
+          insertDataIntoCollection(doc);
+
+        });
+      });
 
       res.end();
       req.destroy();
@@ -59,9 +67,10 @@ var Process = function(procName, activities) {
   //Private Functions
   var insertDataIntoCollection = function (doc, callback) {
 
-    mongoClient.collection(processName, function (err, collection) {
+    mongoClient.collection(mongoIdentifier, function (err, collection) {
       if (err) {
-        console.log('Error: cannot create/access to the collection of the process ' + processName);
+        console.log('Error: cannot create/access to the collection of the process ' + processName +
+            ' (ID: ' + processUUID + ')');
       } else {
 
         collection.insert(doc, function (err, docs) {
@@ -79,124 +88,150 @@ var Process = function(procName, activities) {
 
   var next = function (indexCompletedActivity, tagsAndCardinalities, data) {
 
-    if (indexCompletedActivity >= 0 && executionPool[indexCompletedActivity].state === globals.states.COMPLETED) {
-      console.log('ERROR: This activity already executed next()');
-    } else {
+    mongoClient.collection(mongoIdentifier + ':' + globals.EXCPOOL_SUFFIX, function (err, collection) {
 
-      //Tags Array
-      var tags = [];
-      for (var i = 0; i < tagsAndCardinalities.length; i++) {
-        tags.push(tagsAndCardinalities[i].tag);
-      }
+      collection.findOne({_id: indexCompletedActivity}, function(err, doc) {
 
-      if (indexCompletedActivity !== -1) {   //-1 when start
-
-        executionPool[indexCompletedActivity].state = globals.states.COMPLETED;
-
-        var doc = {
-          id: indexCompletedActivity,
-          type: globals.trackType.ACTIVITY,
-          tag: executionPool[indexCompletedActivity].tag,
-          result: data,
-          nextTags: tags
-        };
-
-        insertDataIntoCollection(doc);
-
-        if(pendingTransaction) {
-          insertTag();
-        }
-      }
-
-      for (var j = 0; j < tagsAndCardinalities.length; j++) {
-
-        var tag = tagsAndCardinalities[j].tag;
-        var cardinality = tagsAndCardinalities[j].cardinality || 1;
-        var nextExc = tagsAndCardinalities[j].nextExc || false;
-
-        //Look for the tag in the execution pool
-        var indexNextActivity = -1;
-
-        for (var i = 0; i < executionPool.length && indexNextActivity === -1; i++) {
-
-          //and its cardinality has not been reached
-          if (executionPool[i].tag === tag &&
-              executionPool[i].state === globals.states.CARDINALITY_NOT_REACHED) {
-
-            var totalInvocations = executionPool[i].invocations;
-
-            //Set data
-            executionPool[i].dataActivities[totalInvocations] = data;
-            //executionPool[indexNextActivity].
-            //    dataActivities[executionPool[indexCompletedActivity].state] = data;
-
-            //Increase cardinality
-            executionPool[i].invocations = totalInvocations + 1;
-
-            indexNextActivity = i;
-          }
-        }
-
-        if (indexNextActivity === -1) {
-          var activityInfo = {};
-
-          //Set tag
-          activityInfo.tag = tag;
-
-          //Set nextExc
-          activityInfo.nextExc = nextExc;
-
-          //Set data
-          activityInfo.dataActivities = [];
-          //activityInfo.dataActivities[executionPool[indexCompletedActivity].state] = data;
-          activityInfo.dataActivities[0] = data;
-
-          //Set cardinality
-          activityInfo.invocations = 1;
-
-          //Push activity into the execution Pool
-          indexNextActivity = executionPool.push(activityInfo) - 1;
-        }
-
-        //If the cardinality is reached, the state will be waiting (for new events)
-        if (executionPool[indexNextActivity].invocations === cardinality) {
-
-          executionPool[indexNextActivity].state = globals.states.WAITING;
-
-          //Execute either nextExc is true or filter returns true
-          if (nextExc || processActivities[tag].filter(executionPool[indexNextActivity].dataActivities)) {
-            executeActivity(indexNextActivity);
-          }
-
+        if (doc && doc.state === globals.states.COMPLETED) {
+          console.log('ERROR: This activity already executed next()');
         } else {
-          executionPool[indexNextActivity].state = globals.states.CARDINALITY_NOT_REACHED;
+
+          var onMarkedAsCompleted = function(err, count) {
+            for (var j = 0; j < tagsAndCardinalities.length; j++) {
+
+              var tag = tagsAndCardinalities[j].tag;
+              var cardinality = tagsAndCardinalities[j].cardinality || 1;
+              var nextExc = tagsAndCardinalities[j].nextExc || false;
+
+              //Look for the tag in the execution pool
+              collection.findOne({tag: tag}, function(tag, cardinality, nextExc, err, doc) {
+
+                if (!doc) {
+
+                  doc = {};
+
+                  //Set tag
+                  doc.tag = tag;
+
+                  //Set nextExc
+                  doc.nextExc = nextExc;
+
+                  //Set data
+                  doc.dataActivities = [];
+                  doc.dataActivities[0] = data;
+
+                  //Set cardinality
+                  doc.invocations = 1;
+
+                } else {
+
+                  var totalInvocations = doc.invocations;
+
+                  if (totalInvocations !== cardinality) {
+                    doc.invocations = totalInvocations + 1;
+                  }
+
+                  doc.dataActivities[totalInvocations] = data;
+                }
+
+                if (doc.invocations === cardinality) {
+                  doc.state = globals.states.WAITING;
+                } else {
+                  doc.state = globals.states.CARDINALITY_NOT_REACHED;
+                }
+
+                var onInserted = function(indexNextActivity) {
+                  if (doc.state === globals.states.WAITING &&
+                      (nextExc || processActivities[tag].filter(doc.dataActivities))) {
+                    executeActivity(indexNextActivity);
+                  }
+                }
+
+                if (!doc['_id']) {
+                  collection.insert(doc, {safe: true}, function(err, records) {
+                    var indexNextActivity = records[0]['_id'];
+                    onInserted(indexNextActivity);
+                  });
+                } else {
+                  var indexNextActivity = doc['_id'];
+                  collection.update({_id: doc['_id']}, doc, onInserted.bind({}, indexNextActivity));
+                }
+              }.bind({}, tag, cardinality, nextExc));
+            }
+          };
+
+          //Tags Array
+          var tags = [];
+          for (var i = 0; i < tagsAndCardinalities.length; i++) {
+            tags.push(tagsAndCardinalities[i].tag);
+          }
+
+          if (indexCompletedActivity !== -1) {   //-1 when start
+
+            collection.update({_id: indexCompletedActivity}, {$set: {state: globals.states.COMPLETED}}, onMarkedAsCompleted);
+
+            var docHistory = {
+              id: indexCompletedActivity,
+              type: globals.trackType.ACTIVITY,
+              tag: doc.tag,
+              result: data,
+              nextTags: tags
+            };
+
+            insertDataIntoCollection(docHistory);
+
+            if(pendingTransaction) {
+              insertTag();
+            }
+          } else {
+            onMarkedAsCompleted();
+          }
         }
-      }
-    }
+      });
+    });
   };
 
   var end = function (index, data) {
-    var doc = {
-      id: index,
-      tag: executionPool[index].tag,
-      type: globals.trackType.PROCESS_END,
-      data: data
-    };
 
-    insertDataIntoCollection(doc, function () {
-      mongoClient.close();
-      server.close();
+
+    mongoClient.collection(mongoIdentifier + ':' + globals.EXCPOOL_SUFFIX, function (err, collection) {
+
+      collection.findOne({_id: index}, function(err, doc) {
+
+        var doc = {
+          id: index,
+          tag: doc.tag,
+          type: globals.trackType.PROCESS_END,
+          data: data
+        };
+
+        insertDataIntoCollection(doc, function () {
+          mongoClient.close();
+          server.close();
+        });
+      });
     });
   };
 
   var executeActivity = function (index, event) {
 
-    var tag = executionPool[index].tag;
-    executionPool[index].state = globals.states.PROCESSING;
+    mongoClient.collection(mongoIdentifier + ':' + globals.EXCPOOL_SUFFIX, function (err, collection) {
 
-    process.nextTick(processActivities[tag].exec.bind({}, executionPool[index].dataActivities, event,
-        next.bind(this, index), end.bind(this, index)));
+      collection.findOne({_id: index}, function(err, doc) {
+        if (err) {
 
+          console.log('Error reading execution pool from MongoDB');
+        } else {
+
+          var tag = doc.tag;
+
+          collection.update({_id: index}, {$set: {state: globals.states.PROCESSING}}, function(err, count) {
+            process.nextTick(processActivities[tag].exec.bind({}, doc.dataActivities, event,
+                next.bind(this, index), end.bind(this, index)));
+          });
+        }
+      });
+    });
   };
 
   var insertTag = function() {
@@ -233,7 +268,7 @@ var Process = function(procName, activities) {
         //Start server
         server.listen(0, 'localhost', function() {
           var address = server.address();
-          console.log('Process ' + processName + ' listening events on ' + address.address + ':' + address.port);
+          console.log('Process ' + processName + ' (ID: ' + processUUID + ') listening events on ' + address.address + ':' + address.port);
 
           //Launch the process
           next(-1, [{tag: tag}], input);
@@ -248,7 +283,7 @@ var Process = function(procName, activities) {
       console.log('The transaction ' + pendingTransaction + ' has not been created yet. Please create a new ' +
           'transaction when this transaction is created');
     } else {
-      mongoClient.collection(processName, function(err, collection) {
+      mongoClient.collection(mongoIdentifier, function(err, collection) {
         collection.findOne({ type: globals.trackType.TAG, name: tag }, function (err, doc) {
 
           if (!doc){

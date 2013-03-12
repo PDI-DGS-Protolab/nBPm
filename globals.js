@@ -12,3 +12,5 @@ exports.trackType = {
   'PROCESS_END':'processEnd',
   'ROLLBACK_ERROR':'rollback_error'
 }
+
+exports.EXCPOOL_SUFFIX = 'excPool';

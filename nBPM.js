@@ -97,6 +97,7 @@ var Process = function(procName, activities) {
         } else {
 
           var onMarkedAsCompleted = function(err, count) {
+
             for (var j = 0; j < tagsAndCardinalities.length; j++) {
 
               var tag = tagsAndCardinalities[j].tag;
@@ -145,6 +146,10 @@ var Process = function(procName, activities) {
                       (nextExc || processActivities[tag].filter(doc.dataActivities))) {
                     executeActivity(indexNextActivity);
                   }
+
+                  if(tag === tagsAndCardinalities[tagsAndCardinalities.length -1].tag && pendingTransaction) {
+                    insertTag();
+                  }
                 }
 
                 if (!doc['_id']) {
@@ -153,8 +158,7 @@ var Process = function(procName, activities) {
                     onInserted(indexNextActivity);
                   });
                 } else {
-                  var indexNextActivity = doc['_id'];
-                  collection.update({_id: doc['_id']}, doc, onInserted.bind({}, indexNextActivity));
+                  collection.update({_id: doc['_id']}, doc, onInserted.bind({}, doc['_id']));
                 }
               }.bind({}, tag, cardinality, nextExc));
             }
@@ -180,9 +184,9 @@ var Process = function(procName, activities) {
 
             insertDataIntoCollection(docHistory);
 
-            if(pendingTransaction) {
+            /*if(pendingTransaction) {
               insertTag();
-            }
+            }*/
           } else {
             onMarkedAsCompleted();
           }
@@ -216,8 +220,8 @@ var Process = function(procName, activities) {
   var executeActivity = function (index, event) {
 
     mongoClient.collection(mongoIdentifier + ':' + globals.EXCPOOL_SUFFIX, function (err, collection) {
-
       collection.findOne({_id: index}, function(err, doc) {
+
         if (err) {
 
           console.log('Error reading execution pool from MongoDB');
@@ -236,26 +240,31 @@ var Process = function(procName, activities) {
 
   var insertTag = function() {
 
-    var processing = false;
-    for (var i = 0; i < executionPool && !processing; i++) {
-      if(executionPool[i].status === globals.states.PROCESSING) {
-        processing = true;
-      }
-    }
+    mongoClient.collection(mongoIdentifier + ':' + globals.EXCPOOL_SUFFIX, function (err, collection) {
+      collection.find().toArray(function(err, executionPool) {
 
-    if (!processing) {
+        var processing = false;
+        for (var i = 0; i < executionPool.length && !processing; i++) {
+          if(executionPool[i].status === globals.states.PROCESSING) {
+            processing = true;
+          }
+        }
 
-      var doc={
-        type: globals.trackType.TAG,
-        name: pendingTransaction,
-        executionPool: executionPool
-      };
+        if (!processing) {
 
-      insertDataIntoCollection(doc);
-      console.log('Transaction ' + pendingTransaction + ' created!');
-      pendingTransaction = undefined;
+          var doc = {
+            type: globals.trackType.TAG,
+            name: pendingTransaction,
+            executionPool: executionPool
+          };
 
-    }
+          insertDataIntoCollection(doc);
+          console.log('Transaction ' + pendingTransaction + ' created!');
+          pendingTransaction = undefined;
+
+        }
+      });
+    });
   };
 
   this.start = function(tag, input) {
@@ -291,7 +300,7 @@ var Process = function(procName, activities) {
             //FIXME: Processing Activities should change its state to Waiting before saving the execution pool?
             //FIXME: Activities are waited to finish and then the transaction is set
             pendingTransaction = tag;
-            insertTag();
+            //insertTag();
           } else {
             console.log('The tag ' + tag + ' already exists');
           }
@@ -301,88 +310,106 @@ var Process = function(procName, activities) {
   };
 
   this.rollBack = function(tag) {
-    mongoClient.collection(processName, function (err, collection) {
-      if (err) {
-        console.log('Error: the event collection cannot be accessed');
-      } else {
 
-        collection.find().toArray(function(err, docs) {
+    mongoClient.collection(mongoIdentifier + ':' + globals.EXCPOOL_SUFFIX, function (err, poolCollection) {
+      poolCollection.find().toArray(function(err, executionPool) {
+        mongoClient.collection(mongoIdentifier, function (err, logCollection) {
+
           if (err) {
-            console.log('Rollback cannot be executed due a MongoDB failure');
+            console.log('Error: the event collection cannot be accessed');
           } else {
 
-            var tagIndex = -1;
-            var tmpExcPool;
-            for (var i = 0; i < docs.length && tagIndex === -1; i++) {
-              var doc = docs[i];
+            logCollection.find().toArray(function(err, docs) {
 
-              if (doc.type === globals.trackType.TAG && doc.name === tag) {
-                tmpExcPool = doc.executionPool;
-                tagIndex = i;
-              }
-            }
+              if (err) {
+                console.log('Rollback cannot be executed due a MongoDB failure');
+              } else {
 
-            var rollBackErrorIndex = -1;
+                var tagIndex = -1;
+                var tmpExcPool;
+                for (var i = 0; i < docs.length && tagIndex === -1; i++) {
+                  var doc = docs[i];
 
-            //Once the tag has been found, activities should be undone in reverse order
-            for (var j = docs.length - 1; j > tagIndex && rollBackErrorIndex === -1; j--){
+                  if (doc.type === globals.trackType.TAG && doc.name === tag) {
+                    tmpExcPool = doc.executionPool;
+                    tagIndex = i;
+                  }
+                }
 
-              var doc = docs[j];
+                var rollBackErrorIndex = -1;
 
-              if (doc.type === globals.trackType.ACTIVITY) {
+                //Once the tag has been found, activities should be undone in reverse order
+                for (var j = docs.length - 1; j > tagIndex && rollBackErrorIndex === -1; j--){
 
-                //Execute RollBack
-                var error = processActivities[executionPool[doc.id].tag].rollback(doc.result);
-                if (error !== 0){
-                  rollBackErrorIndex = j;
+                  var doc = docs[j];
+
+                  if (doc.type === globals.trackType.ACTIVITY) {
+
+                    //Execute RollBack
+                    var error = processActivities[doc.tag].rollback(doc.result);
+                    if (error !== 0){
+                      rollBackErrorIndex = j;
+                    }
+                  }
+
+                  //FIXME: Delete log from MongoDB? At this point or later when all rollbacks have been executed properly?
+                  logCollection.findAndRemove(doc, [['id', 1]], function(err) {
+
+                  });
+                }
+
+                //If there was an error executing rollback
+                if (rollBackErrorIndex !== -1) {
+
+                  console.log('ERROR: There was an error executing a rollback function. Abort');
+
+                  var rollBackError = {
+                    type: globals.trackType.ROLLBACK_ERROR,
+                    actualState: executionPool,
+                    rollBackState: tmpExcPool,
+                    activityError: doc.tag,
+                    input: docs[rollBackErrorIndex].result,
+                    error: error
+                  }
+
+                  insertDataIntoCollection(rollBackError);
+
+                } else if (tagIndex !== -1) {
+
+                  poolCollection.drop(function() {
+
+                    for (var i = 0; i < tmpExcPool.length; i++) {
+                      poolCollection.insert(tmpExcPool[i], {safe: true}, function(i, err, records) {
+                        if (i == tmpExcPool.length - 1) {
+
+                          executionPool = tmpExcPool;
+
+                          //Waiting activities which was executed with nextExc tag must be executed.
+                          //Waiting activities ready to execute (filter), must me started even if nextExc === false
+                          for (var i = 0; i < executionPool.length; i++) {
+
+                            //FIXME: Think me: state should be only WAITING??!
+                            if ((executionPool[i].state !== globals.states.COMPLETED
+                                && executionPool[i].state !== globals.states.CARDINALITY_NOT_REACHED) &&
+                                (executionPool[i].nextExc === true ||
+                                    processActivities[executionPool[i].tag].filter(executionPool[i].dataActivities))){
+
+                              executeActivity(executionPool[i]['_id']);
+                            }
+                          }
+                        }
+                      }.bind({}, i));
+                    }
+                  })
+
+                } else {
+                  console.log('RollBack cannot be executed because the ID ' + tag + ' has not been found');
                 }
               }
-
-              //FIXME: Delete log from MongoDB? At this point or later when all rollbacks have been executed properly?
-              collection.findAndRemove(doc, [['id', 1]], function(err) {
-
-              });
-            }
-
-            //If there was an error executing rollback
-            if (rollBackErrorIndex !== -1) {
-
-              console.log('ERROR: There was an error executing a rollback function. Abort');
-
-              var rollBackError = {
-                type: globals.trackType.ROLLBACK_ERROR,
-                actualState: executionPool,
-                rollBackState: tmpExcPool,
-                activityError: executionPool[docs[rollBackErrorIndex].id].tag,
-                input: docs[rollBackErrorIndex].result,
-                error: error
-              }
-
-              insertDataIntoCollection(rollBackError);
-
-            } else if (tagIndex !== -1) {
-
-              executionPool = tmpExcPool;
-
-              //Waiting activities which was executed with nextExc tag must be executed.
-              //Waiting activities ready to execute (filter), must me started even if nextExc === false
-              for (var i = 0; i < executionPool.length; i++) {
-
-                //FIXME: Think me: state should be only WAITING??!
-                if ((executionPool[i].state !== globals.states.COMPLETED
-                    && executionPool[i].state !== globals.states.CARDINALITY_NOT_REACHED) &&
-                    (executionPool[i].nextExc === true ||
-                        processActivities[executionPool[i].tag].filter(executionPool[i].dataActivities))){
-
-                  executeActivity(i);
-                }
-              }
-            } else {
-              console.log('RollBack cannot be executed because the ID ' + tag + ' has not been found');
-            }
+            });
           }
         });
-      }
+      });
     });
   };
 

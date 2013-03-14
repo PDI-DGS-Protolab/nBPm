@@ -23,7 +23,7 @@ var mail = function(json, callback) {
         filePath: DIR_MODULE + '/head.jpg',
         cid: "unique@kreata.ee" //same cid value as in the html img src
       }],
-      from: 'Aitor Magán \<amagan@conwet.com\>',
+      from: 'Your Name \<your_gmail_user@gmail.com\>',
       to: json['customer']['email'],
       subject: 'Your invoice from Telefónica Digital',
       html: data.toString()

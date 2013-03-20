@@ -111,7 +111,8 @@ var Process = function(procName, activities) {
                   nextExc = tagsAndCardinalities[j].nextExc || false;
 
               //Look for the tag in the execution pool
-              collection.findOne({tag: tag}, function(tag, cardinality, nextExc, last, err, doc) {
+              collection.findOne({tag: tag, state: globals.states.CARDINALITY_NOT_REACHED},
+                  function(tag, cardinality, nextExc, last, err, doc) {
 
                 //If the document does not exist, we have to create it
                 if (!doc) {

@@ -18,7 +18,7 @@ var Process = function(procName, activities) {
 
   //MongoDB Client
   var mongoClient = new mongodb.Db(configMongo.mongoDB, new mongodb.Server(
-    configMongo.mongoHost, configMongo.mongoPort, {}));
+    configMongo.mongoHost, configMongo.mongoPort), { w: 1 });
 
   //HTTP Server to receive events
   var server = http.createServer(function (req, res) {

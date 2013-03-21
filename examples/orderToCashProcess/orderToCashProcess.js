@@ -6,7 +6,8 @@ var mail = require('./mail/mail.js');
 var charging = require('./charging/charging.js');
 
 var activities = {};
-var processName = 'orderToCash';
+var PROCESS_NAME = 'orderToCash';
+var BEFORE_MAIL = 'beforeMail';
 var process;
 
 activities['rating'] = {
@@ -21,9 +22,9 @@ activities['rating'] = {
     return true;
   },
 
-  rollback: function (exit) {
+  rollback: function (exit, callback) {
     console.log('Rollback not required');
-    return -1;
+    callback(-1, null);
   }
 };
 
@@ -41,9 +42,9 @@ activities['customer'] = {
     return true;
   },
 
-  rollback: function (exit) {
+  rollback: function (exit, callback) {
     console.log('Rollback not required');
-    return -1;
+    callback(-1, null);
   }
 };
 
@@ -56,7 +57,8 @@ activities['generateHTML'] = {
     html.generateHTML(data, fileName, function(err) {
 
       data['html_file_name'] = fileName;
-      next([{tag: 'mail', nextExc: true}], data);
+      next([{tag: 'mail'}], data);
+      process.setTransactionTag(BEFORE_MAIL);
     });
   },
 
@@ -64,8 +66,9 @@ activities['generateHTML'] = {
     return true;
   },
 
-  rollback: function (exit) {
-    return -1;
+  rollback: function (exit, callback) {
+    console.log('Rollback not required');
+    callback(-1, null);
   }
 };
 
@@ -73,9 +76,18 @@ activities['mail'] = {
   exec: function (dataActivities, event, next, end) {
     var data = dataActivities[0];
 
-    mail.mail(data, function(error, response) {
+    mail.mail(data, event.mail, function(error, response) {
       if (error) {
-        console.log('Error sending email to the client. What should I do?!')
+
+        console.log('ERROR: An error arises when the mail was being sent. Rollback is going to be executed now...')
+
+        process.rollback(BEFORE_MAIL, function(err) {
+          if (!err) {
+            console.log('Rollback executed properly. Try to send the message again!');
+          } else {
+            console.log('An error arises when callback was being executed. ABORT!')
+          }
+        });
       } else {
         next([{tag: 'charging', nextExc: true}], data);
       }
@@ -83,11 +95,26 @@ activities['mail'] = {
   },
 
   filter: function (dataActivities, event) {
-    return true;
+    if (!event) {
+      return false;
+    } else {
+      if (!event.mail) {
+        return false;
+      } else {
+        var mail = event.mail;
+
+        if (!mail.user || !mail.pass || !mail.name) {
+          return false
+        } else {
+          return true;
+        }
+      }
+    }
   },
 
-  rollback: function (exit) {
-    return -1;
+  rollback: function (exit, callback) {
+    console.log('Rollback not required');
+    callback(null, null);
   }
 };
 
@@ -106,11 +133,12 @@ activities['charging'] = {
     return true;
   },
 
-  rollback: function (exit) {
-    return -1;
+  rollback: function (exit, callback) {
+    console.log('Rollback not required');
+    callback(-1, null);
   }
 
 }
 
-process = nBPM.createProcess(processName, activities);
+process = nBPM.createProcess(PROCESS_NAME, activities);
 process.start('rating', {consumption: './sample.xml', file: '/home/aitor/facturas/fact3.html'});

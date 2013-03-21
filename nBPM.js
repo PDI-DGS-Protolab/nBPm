@@ -1,3 +1,4 @@
+var async = require('async');
 var http = require('http');
 var mongodb = require('mongodb');
 var uuid = require('node-uuid');
@@ -319,107 +320,103 @@ var Process = function(procName, activities) {
     }
   };
 
-  this.rollBack = function(tag) {
+  this.rollback = function(tag, callback) {
 
-    mongoClient.collection(mongoIdentifier + ':' + globals.EXCPOOL_SUFFIX, function (err, poolCollection) {
-      poolCollection.find().toArray(function(err, executionPool) {
-        mongoClient.collection(mongoIdentifier, function (err, logCollection) {
+    mongoClient.collection(mongoIdentifier, function (err, logCollection) {
+
+      if (err) {
+        callback({ error: 'MongoDB Error' });
+      } else {
+
+        logCollection.find().toArray(function(err, history) {
 
           if (err) {
-            console.log('Error: the event collection cannot be accessed');
+            callback({ error: 'MongoDB Error' });
           } else {
 
-            logCollection.find().toArray(function(err, docs) {
+            var tagIndex = -1;
+            var tmpExcPool;
 
-              if (err) {
-                console.log('Rollback cannot be executed due a MongoDB failure');
-              } else {
+            for (var i = 0; i < history.length && tagIndex === -1; i++) {
+              var doc = history[i];
 
-                var tagIndex = -1;
-                var tmpExcPool;
-                for (var i = 0; i < docs.length && tagIndex === -1; i++) {
-                  var doc = docs[i];
+              if (doc.type === globals.trackType.TAG && doc.name === tag) {
+                tmpExcPool = doc.executionPool;
+                tagIndex = i;
+              }
+            }
 
-                  if (doc.type === globals.trackType.TAG && doc.name === tag) {
-                    tmpExcPool = doc.executionPool;
-                    tagIndex = i;
-                  }
+            if (tagIndex !== -1) {
+
+              var rollbackArray = [];
+              //Fill the array with the rollbacks that should be executed
+              for (var j = history.length -1; j > tagIndex; j--) {
+
+                var doc = history[j];
+                if (doc.type === globals.trackType.ACTIVITY) {
+                  rollbackArray.push(processActivities[doc.tag].rollback.bind({}, doc.result));
                 }
+              }
 
-                var rollBackErrorIndex = -1;
+              //Execute rollbacks
+              async.series(rollbackArray, function(err, results) {
+                if (!err) {
 
-                //Once the tag has been found, activities should be undone in reverse order
-                for (var j = docs.length - 1; j > tagIndex && rollBackErrorIndex === -1; j--){
-
-                  var doc = docs[j];
-
-                  if (doc.type === globals.trackType.ACTIVITY) {
-
-                    //Execute RollBack
-                    var error = processActivities[doc.tag].rollback(doc.result);
-                    if (error !== 0){
-                      rollBackErrorIndex = j;
-                    }
+                  //Remove history
+                  for (var j= history.length -1; j > tagIndex; j--) {
+                    logCollection.findAndRemove(history[j], [['id', 1]], function(err) {});
                   }
 
-                  //FIXME: Delete log from MongoDB? At this point or later when all rollbacks have been executed properly?
-                  logCollection.findAndRemove(doc, [['id', 1]], function(err) {
+                  mongoClient.collection(mongoIdentifier + ':' + globals.EXCPOOL_SUFFIX,
+                      function (err, poolCollection) {
+                    //Remove the Execution Pool and insert the old one
+                    poolCollection.drop(function() {
 
+                      for (var i = 0; i < tmpExcPool.length; i++) {
+                        //Insert the elements from the old execution pool in the present execution pool
+                        poolCollection.insert(tmpExcPool[i], { safe: true }, function(i, err, records) {
+
+                          if (i === tmpExcPool.length - 1) {
+
+                            //Waiting activities which was executed with nextExc tag must be executed.
+                            //Waiting activities ready to execute (filter), must me started even if nextExc === false
+                            for (var j = 0; j < tmpExcPool.length; j++) {
+                              if (tmpExcPool[j].state === globals.states.WAITING && (tmpExcPool[j].nextExc === true ||
+                                      processActivities[tmpExcPool[j].tag].filter(tmpExcPool[j].dataActivities))){
+                                executeActivity(tmpExcPool[j]['_id']);
+                              }
+                            }
+
+                            //Null argument to indicate that rollback has been executed without problems
+                            callback(null);
+                          }
+                        }.bind({}, i));
+                      }
+                    });
                   });
-                }
 
-                //If there was an error executing rollback
-                if (rollBackErrorIndex !== -1) {
+                } else {
 
-                  console.log('ERROR: There was an error executing a rollback function. Abort');
-
+                  //Error should include the tag (err.tag) and an error description (err.error)
                   var rollBackError = {
                     type: globals.trackType.ROLLBACK_ERROR,
-                    actualState: executionPool,
-                    rollBackState: tmpExcPool,
-                    activityError: doc.tag,
-                    input: docs[rollBackErrorIndex].result,
-                    error: error
+                    tag: tag,
+                    activityError: err.tag,
+                    error: err.error
                   }
 
                   insertHistoryEvent(rollBackError);
 
-                } else if (tagIndex !== -1) {
-
-                  poolCollection.drop(function() {
-
-                    for (var i = 0; i < tmpExcPool.length; i++) {
-                      poolCollection.insert(tmpExcPool[i], { safe: true }, function(i, err, records) {
-                        if (i == tmpExcPool.length - 1) {
-
-                          executionPool = tmpExcPool;
-
-                          //Waiting activities which was executed with nextExc tag must be executed.
-                          //Waiting activities ready to execute (filter), must me started even if nextExc === false
-                          for (var i = 0; i < executionPool.length; i++) {
-
-                            //FIXME: Think me: state should be only WAITING??!
-                            if ((executionPool[i].state !== globals.states.COMPLETED
-                                && executionPool[i].state !== globals.states.CARDINALITY_NOT_REACHED) &&
-                                (executionPool[i].nextExc === true ||
-                                    processActivities[executionPool[i].tag].filter(executionPool[i].dataActivities))){
-
-                              executeActivity(executionPool[i]['_id']);
-                            }
-                          }
-                        }
-                      }.bind({}, i));
-                    }
-                  })
-
-                } else {
-                  console.log('RollBack cannot be executed because the ID ' + tag + ' has not been found');
+                  callback(err);
                 }
-              }
-            });
+              });
+
+            } else {
+              callback({error: 'Tag ' + tag + ' has not been found'});
+            }
           }
         });
-      });
+      }
     });
   };
 

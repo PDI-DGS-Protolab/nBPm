@@ -4,7 +4,7 @@ var path = require('path');
 
 var DIR_MODULE = path.dirname(module.filename);
 
-var mail = function(json, callback) {
+var mail = function(json, mailData, callback) {
   var fileName = json['html_file_name'];
 
   fs.readFile(fileName, function (err, data) {
@@ -12,8 +12,8 @@ var mail = function(json, callback) {
     var smtpTransport = mailer.createTransport('SMTP',{
       service: 'Gmail',
       auth: {
-        user: 'your_gmail_user@gmail.com',
-        pass: 'your_gmail_pass'
+        user: mailData.user,
+        pass: mailData.pass
       }
     });
 
@@ -23,7 +23,7 @@ var mail = function(json, callback) {
         filePath: DIR_MODULE + '/head.jpg',
         cid: "unique@kreata.ee" //same cid value as in the html img src
       }],
-      from: 'Your Name \<your_gmail_user@gmail.com\>',
+      from: mailData.mail + '\<' + mailData.user + '\>',
       to: json['customer']['email'],
       subject: 'Your invoice from Telefónica Digital',
       html: data.toString()

@@ -20,6 +20,7 @@
 
     "dependencies":{
         "mongodb": "*",
+        "async": "*",
         "ejs": "*",
         "nodemailer": "*",
         "xml2js": "*"

@@ -21,9 +21,9 @@ activities['activityA'] = {
     return true;
   },
 
-  rollback: function (exit) {
+  rollback: function (exit, callback) {
     console.log('This activity cannot be undone...');
-    return -1;
+    callback(-1, null);
   }
 };
 
@@ -51,9 +51,9 @@ activities['activityB'] = {
     }
   },
 
-  rollback: function (exit) {
+  rollback: function (exit, callback) {
     console.log('Undoing Activity B. Exit: ' + exit);
-    return 0;
+    callback(null, 0);
   }
 };
 
@@ -65,7 +65,7 @@ activities['activityC'] = {
     //Activity C code
     //...
 
-    next([{tag: 'activityD', cardinality: 2}], dataActivities[0] + ' + Activity C: ');
+    next([{tag: 'activityD', cardinality: 2}], dataActivities[0] + ' + Activity C: OWN PROCESSING');
   },
 
   filter: function (dataActivities, event) {
@@ -83,9 +83,9 @@ activities['activityC'] = {
     }*/
   },
 
-  rollback: function (exit) {
+  rollback: function (exit, callback) {
     console.log('Undoing Activity C. Exit: ' + exit);
-    return 0;
+    callback(null, 0);
   }
 };
 
@@ -95,7 +95,13 @@ activities['activityD'] = {
     //Execute Rollback the first time...
     if (!rollBackExecuted) {
 
-      process.rollBack(rollBackTag);
+      process.rollback(rollBackTag, function(err) {
+        if (err) {
+          console.log(err);
+        } else {
+          console.log('Callback executed without problems!');
+        }
+      });
       rollBackExecuted = true;
 
     } else {
@@ -114,9 +120,9 @@ activities['activityD'] = {
     return true;
   },
 
-  rollback: function (exit) {
+  rollback: function (exit, callback) {
     console.log('This activity cannot be undone...');
-    return -1;
+    callback(-1, null);
   }
 };
 
